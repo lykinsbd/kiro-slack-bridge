@@ -25,13 +25,21 @@ Slack bot that integrates with Kiro CLI for conversational AI assistance.
 
 ### 2. Configure Bridge
 
-Copy `config.yaml` and fill in your tokens:
+**Option 1: Environment Variables (Recommended)**
 
-```yaml
-slack:
-  app_token: "xapp-..."
-  bot_token: "xoxb-..."
+```bash
+export SLACK_APP_TOKEN="xapp-..."
+export SLACK_BOT_TOKEN="xoxb-..."
 ```
+
+**Option 2: Local Config File**
+
+```bash
+cp config.local.yaml.example config.local.yaml
+# Edit config.local.yaml with your tokens
+```
+
+Then run with: `uv run python bridge.py config.local.yaml`
 
 ### 3. Install Dependencies
 

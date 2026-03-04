@@ -15,10 +15,18 @@ from slack_sdk.socket_mode.response import SocketModeResponse
 class KiroSlackBridge:
     def __init__(self, config_path="config.yaml"):
         with open(config_path) as f:
-            self.config = yaml.safe_load(f)
+            config_raw = f.read()
+        
+        # Expand environment variables
+        config_raw = os.path.expandvars(config_raw)
+        self.config = yaml.safe_load(config_raw)
         
         self.app_token = self.config["slack"]["app_token"]
         self.bot_token = self.config["slack"]["bot_token"]
+        
+        if not self.app_token or not self.bot_token:
+            raise ValueError("Slack tokens not configured. Set SLACK_APP_TOKEN and SLACK_BOT_TOKEN environment variables.")
+        
         self.base_dir = Path(self.config["threads"]["base_dir"]).expanduser()
         self.kiro_cli = self.config["kiro"].get("cli_path") or "kiro-cli"
         self.agent = self.config["kiro"].get("agent")

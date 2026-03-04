@@ -1,0 +1,14 @@
+# Copy this to config.local.yaml and fill in your tokens
+# config.local.yaml is gitignored
+
+slack:
+  app_token: "xapp-your-token-here"
+  bot_token: "xoxb-your-token-here"
+
+threads:
+  base_dir: "~/kiro-slack-threads"
+
+kiro:
+  cli_path: ""
+  agent: ""
+  trust_all_tools: false
