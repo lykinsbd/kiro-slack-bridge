@@ -1,0 +1,10 @@
+[project]
+name = "kiro-slack-bridge"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0.3",
+    "slack-sdk>=3.40.1",
+]
