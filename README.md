@@ -2,6 +2,12 @@
 
 Slack bot that integrates with Kiro CLI for conversational AI assistance.
 
+## 🚀 Quick Start
+
+**New to this project?** → See [GETTING_STARTED.md](GETTING_STARTED.md) for a 5-minute setup guide.
+
+**Ready to deploy?** → See [DEPLOYMENT.md](DEPLOYMENT.md) for production systemd setup.
+
 ## Setup
 
 ### 1. Create Slack App
