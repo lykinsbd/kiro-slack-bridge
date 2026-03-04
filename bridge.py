@@ -370,12 +370,12 @@ class KiroSlackBridge:
                 help_text = """🤖 *Kiro Slack Bridge Help*
 
 *Commands:*
-• `/kiro-help` - Show this help message
+- `/kiro-help` - Show this help message
 
 *Usage:*
-• Mention @Kiro Assistant in a channel or DM directly
-• Each thread maintains its own conversation history
-• Bot responds with full context from previous messages in the thread"""
+- Mention @Kiro Assistant in a channel or DM directly
+- Each thread maintains its own conversation history
+- Bot responds with full context from previous messages in the thread"""
                 
                 self.client.chat_postMessage(
                     channel=channel,
