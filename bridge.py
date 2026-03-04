@@ -388,13 +388,6 @@ class KiroSlackBridge:
                     channel=channel,
                     text=f"Command `{command}` is not yet implemented. Use `/kiro-help` for available commands."
                 )
-• Conversations are thread-based with full context
-• Each thread maintains its own conversation history"""
-                
-                self.client.chat_postMessage(
-                    channel=channel,
-                    text=help_text
-                )
         
         except Exception as e:
             logger.error(f"Error handling slash command: {e}", exc_info=True)
