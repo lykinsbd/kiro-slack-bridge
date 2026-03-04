@@ -158,28 +158,9 @@ class KiroSlackBridge:
         thread_dir.mkdir(parents=True, exist_ok=True)
         return thread_dir
 
-    def has_existing_session(self, thread_dir):
-        """Check if thread directory has an existing Kiro session"""
-        try:
-            result = subprocess.run(
-                [self.kiro_cli, "chat", "--list-sessions"],
-                cwd=thread_dir,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            # If there's output with session info, a session exists
-            return result.returncode == 0 and "Chat SessionId:" in result.stderr
-        except Exception as e:
-            logger.warning(f"Failed to check for existing session: {e}")
-            return False
-
-    def run_kiro(self, message, thread_dir, is_resume=False):
+    def run_kiro(self, message, thread_dir):
         """Run kiro-cli and return response"""
-        cmd = [self.kiro_cli, "chat", "--no-interactive"]
-
-        if is_resume:
-            cmd.append("--resume")
+        cmd = [self.kiro_cli, "chat", "--no-interactive", "--resume"]
 
         if self.agent:
             cmd.extend(["--agent", self.agent])
@@ -317,17 +298,15 @@ class KiroSlackBridge:
             try:
                 # Get thread directory
                 thread_dir = self.get_thread_dir(thread_ts)
-                is_resume = self.has_existing_session(thread_dir)
-
-                logger.debug(f"Thread dir: {thread_dir}, resume: {is_resume}")
+                logger.debug(f"Thread dir: {thread_dir}")
 
                 # Send typing indicator
                 thinking_msg = self.client.chat_postMessage(
                     channel=channel, thread_ts=thread_ts, text="Thinking..."
                 )
 
-                # Run Kiro
-                response = self.run_kiro(text, thread_dir, is_resume)
+                # Run Kiro (always with --resume to maintain session)
+                response = self.run_kiro(text, thread_dir)
 
                 # Delete thinking message
                 try:
