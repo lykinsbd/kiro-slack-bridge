@@ -22,6 +22,9 @@ Slack bot that integrates with Kiro CLI for conversational AI assistance.
 6. Install app to workspace and save the Bot Token as `SLACK_BOT_TOKEN`
 7. Enable Event Subscriptions:
    - Subscribe to bot events: `app_mention`, `message.channels`, `message.groups`, `message.im`
+8. Enable Slash Commands (optional):
+   - Create commands: `/kiro-reset`, `/kiro-status`, `/kiro-help`
+   - Request URL: (not needed for Socket Mode)
 
 ### 2. Configure Bridge
 
@@ -71,6 +74,9 @@ uv run python bridge.py
 - 5-minute timeout protection
 - Structured logging
 - Auto-restart via systemd
+- Rate limiting (per-user and global concurrency)
+- Health check and metrics endpoint (`:8080/health`, `:8080/metrics`)
+- Slash commands (`/kiro-reset`, `/kiro-status`, `/kiro-help`)
 
 ## Testing
 
