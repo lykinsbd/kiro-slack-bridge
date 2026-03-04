@@ -113,7 +113,7 @@ class KiroSlackBridge:
         
         # Health check port
         health_config = self.config.get("health", {})
-        self.health_port = health_config.get("port", 8081)
+        self.health_port = health_config.get("port", 9090)
         
         # Track user message timestamps for rate limiting
         self.user_messages = defaultdict(deque)
