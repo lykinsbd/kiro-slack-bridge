@@ -262,6 +262,13 @@ class KiroSlackBridge:
 
     def handle_message(self, event):
         """Handle incoming Slack message"""
+        # Log the event for debugging
+        logger.debug(
+            f"Event received: user={event.get('user')}, bot_id={event.get('bot_id')}, "
+            f"subtype={event.get('subtype')}, app_id={event.get('app_id')}, "
+            f"bot_profile={event.get('bot_profile')}"
+        )
+
         # Ignore bot messages (including our own)
         # Check multiple fields as bot messages can have different identifiers
         if (
@@ -269,6 +276,7 @@ class KiroSlackBridge:
             or event.get("subtype") == "bot_message"
             or event.get("app_id")
             or event.get("bot_profile")
+            or not event.get("user")  # Messages without a user are likely from bots
         ):
             logger.debug(f"Ignoring bot message: {event.get('text', '')[:50]}")
             return
