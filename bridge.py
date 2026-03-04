@@ -6,6 +6,7 @@ import subprocess
 import yaml
 import logging
 import time
+import re
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict, deque
@@ -23,6 +24,12 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+def strip_ansi_codes(text):
+    """Remove ANSI color codes from text"""
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
 
 
 class Metrics:
@@ -183,7 +190,8 @@ class KiroSlackBridge:
             self.metrics.record_kiro_time(duration)
             
             if result.returncode == 0:
-                return result.stdout.strip()
+                # Strip ANSI color codes from output
+                return strip_ansi_codes(result.stdout.strip())
             else:
                 logger.error(f"Kiro CLI failed: {result.stderr}")
                 self.metrics.record_error("kiro_cli_error")
@@ -245,8 +253,8 @@ class KiroSlackBridge:
     
     def handle_message(self, event):
         """Handle incoming Slack message"""
-        # Ignore bot messages
-        if event.get("bot_id"):
+        # Ignore bot messages (including our own)
+        if event.get("bot_id") or event.get("subtype") == "bot_message":
             return
         
         text = event.get("text", "")
@@ -352,73 +360,34 @@ class KiroSlackBridge:
         command = payload["command"]
         channel = payload["channel_id"]
         user = payload["user_id"]
-        thread_ts = payload.get("thread_ts") or payload["message_ts"]
+        # Slash commands don't have thread_ts, use trigger_id or response_url
+        thread_ts = None  # Slash commands respond ephemerally or to channel
         
         logger.info(f"Received slash command {command} from {user}")
         
         try:
-            if command == "/kiro-reset":
-                thread_dir = self.get_thread_dir(thread_ts)
-                if thread_dir.exists():
-                    import shutil
-                    shutil.rmtree(thread_dir)
-                    thread_dir.mkdir(parents=True)
-                    msg = "✅ Thread context cleared. Starting fresh!"
-                else:
-                    msg = "No existing context to clear."
-                
-                self.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text=msg
-                )
-            
-            elif command == "/kiro-status":
-                thread_dir = self.get_thread_dir(thread_ts)
-                has_session = self.has_existing_session(thread_dir)
-                
-                # Count messages if session exists
-                msg_count = "unknown"
-                if has_session:
-                    try:
-                        result = subprocess.run(
-                            [self.kiro_cli, "chat", "--list-sessions"],
-                            cwd=thread_dir,
-                            capture_output=True,
-                            text=True,
-                            timeout=5
-                        )
-                        # Parse message count from output
-                        for line in result.stderr.split('\n'):
-                            if 'msgs' in line:
-                                msg_count = line.split('|')[-1].strip()
-                                break
-                    except Exception:
-                        pass
-                
-                status = f"""📊 *Thread Status*
-• Session: {'Active' if has_session else 'New'}
-• Messages: {msg_count}
-• Agent: {self.agent or 'default'}
-• Thread ID: `{thread_ts}`
-• Storage: `{thread_dir}`"""
-                
-                self.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text=status
-                )
-            
-            elif command == "/kiro-help":
+            if command == "/kiro-help":
                 help_text = """🤖 *Kiro Slack Bridge Help*
 
 *Commands:*
-• `/kiro-reset` - Clear thread context and start fresh
-• `/kiro-status` - Show thread information
 • `/kiro-help` - Show this help message
 
 *Usage:*
-• Mention @kiro in a channel or DM directly
+• Mention @Kiro Assistant in a channel or DM directly
+• Each thread maintains its own conversation history
+• Bot responds with full context from previous messages in the thread"""
+                
+                self.client.chat_postMessage(
+                    channel=channel,
+                    text=help_text
+                )
+            
+            else:
+                # Other commands not yet supported without thread context
+                self.client.chat_postMessage(
+                    channel=channel,
+                    text=f"Command `{command}` is not yet implemented. Use `/kiro-help` for available commands."
+                )
 • Conversations are thread-based with full context
 • Each thread maintains its own conversation history"""
                 
