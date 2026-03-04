@@ -29,10 +29,13 @@ uv sync
 5. **Install to Workspace:**
    - Click "Install to Workspace"
    - Copy the Bot User OAuth Token (starts with `xoxb-`)
-6. **Enable Events** (Event Subscriptions):
+6. **Enable Event Subscriptions:**
    - Toggle ON
    - Subscribe to: `app_mention`, `message.channels`, `message.groups`, `message.im`
-7. **Add Slash Commands** (optional):
+7. **Enable Messages Tab** (App Home):
+   - Go to App Home
+   - Under "Show Tabs", toggle ON "Allow users to send Slash commands and messages from the messages tab"
+8. **Add Slash Commands** (optional):
    - Create: `/kiro-reset`, `/kiro-status`, `/kiro-help`
    - Request URL: leave blank (Socket Mode doesn't need it)
 

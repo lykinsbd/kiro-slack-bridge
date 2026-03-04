@@ -28,7 +28,9 @@ Slack bot that integrates with Kiro CLI for conversational AI assistance.
 6. Install app to workspace and save the Bot Token as `SLACK_BOT_TOKEN`
 7. Enable Event Subscriptions:
    - Subscribe to bot events: `app_mention`, `message.channels`, `message.groups`, `message.im`
-8. Enable Slash Commands (optional):
+8. Enable Messages Tab (App Home):
+   - Go to App Home → Under "Show Tabs", toggle ON "Allow users to send Slash commands and messages from the messages tab"
+9. Enable Slash Commands (optional):
    - Create commands: `/kiro-reset`, `/kiro-status`, `/kiro-help`
    - Request URL: (not needed for Socket Mode)
 
