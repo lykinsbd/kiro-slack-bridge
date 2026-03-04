@@ -111,6 +111,10 @@ class KiroSlackBridge:
         self.per_user_limit = rate_config.get("per_user_per_minute", 10)
         self.max_concurrent = rate_config.get("max_concurrent", 3)
         
+        # Health check port
+        health_config = self.config.get("health", {})
+        self.health_port = health_config.get("port", 8081)
+        
         # Track user message timestamps for rate limiting
         self.user_messages = defaultdict(deque)
         
@@ -436,10 +440,10 @@ class KiroSlackBridge:
     def start(self):
         """Start the bridge"""
         # Start health check server
-        health_server = HTTPServer(("0.0.0.0", 8080), HealthHandler)
+        health_server = HTTPServer(("0.0.0.0", self.health_port), HealthHandler)
         health_thread = Thread(target=health_server.serve_forever, daemon=True)
         health_thread.start()
-        logger.info("🏥 Health check server started on :8080")
+        logger.info(f"🏥 Health check server started on :{self.health_port}")
         
         self.socket_client.socket_mode_request_listeners.append(self.process_event)
         logger.info("🚀 Kiro Slack Bridge starting...")
