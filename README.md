@@ -67,6 +67,21 @@ uv run python bridge.py
 - Date-organized storage for easy management
 - Configurable Kiro agent and trust settings
 - Works in channels (via @mention) and DMs
+- Message chunking for long responses (>3000 chars)
+- 5-minute timeout protection
+- Structured logging
+- Auto-restart via systemd
+
+## Testing
+
+Run tests:
+```bash
+uv run pytest test_bridge.py -v
+```
+
+## Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for systemd service setup.
 
 ## Configuration
 

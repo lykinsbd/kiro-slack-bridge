@@ -1,0 +1,20 @@
+[Unit]
+Description=Kiro Slack Bridge
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/venvs/kiro-slack-bridge
+ExecStart=/opt/venvs/kiro-slack-bridge/.venv/bin/python bridge.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables (override with systemd drop-in or EnvironmentFile)
+Environment="SLACK_APP_TOKEN="
+Environment="SLACK_BOT_TOKEN="
+
+[Install]
+WantedBy=multi-user.target
