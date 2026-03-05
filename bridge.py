@@ -160,7 +160,7 @@ class KiroSlackBridge:
 
     def run_kiro(self, message, thread_dir):
         """Run kiro-cli and return response"""
-        cmd = [self.kiro_cli, "chat", "--no-interactive", "--resume"]
+        cmd = [self.kiro_cli, "chat", "--resume"]
 
         if self.agent:
             cmd.extend(["--agent", self.agent])
