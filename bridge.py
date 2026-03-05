@@ -159,8 +159,13 @@ class KiroSlackBridge:
         return thread_dir
 
     def run_kiro(self, message, thread_dir):
-        """Run kiro-cli and return response"""
-        cmd = [self.kiro_cli, "chat", "--resume"]
+        """Run kiro-cli and return response
+
+        Note: Sessions are not persisted across messages because Kiro CLI
+        stores sessions per working directory (not per subdirectory).
+        Each message is processed independently.
+        """
+        cmd = [self.kiro_cli, "chat", "--no-interactive"]
 
         if self.agent:
             cmd.extend(["--agent", self.agent])
@@ -168,12 +173,13 @@ class KiroSlackBridge:
         if self.trust_all:
             cmd.append("--trust-all-tools")
 
+        cmd.append(message)
+
         start_time = time.time()
         try:
             result = subprocess.run(
                 cmd,
                 cwd=thread_dir,
-                input=message,  # Send message via stdin
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout
