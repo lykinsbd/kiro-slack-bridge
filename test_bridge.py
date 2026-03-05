@@ -102,32 +102,6 @@ class TestThreadDirectory:
         assert thread_dir == expected
         assert thread_dir.exists()
 
-    def test_has_existing_session_true(self, bridge, mocker):
-        """Test session detection when session exists"""
-        mock_run = mocker.patch("bridge.subprocess.run")
-        mock_run.return_value = Mock(
-            returncode=0, stderr="Chat SessionId: abc123\n  1 msgs"
-        )
-
-        result = bridge.has_existing_session(Path("/tmp/test"))
-        assert result is True
-
-    def test_has_existing_session_false(self, bridge, mocker):
-        """Test session detection when no session exists"""
-        mock_run = mocker.patch("bridge.subprocess.run")
-        mock_run.return_value = Mock(returncode=0, stderr="No sessions found")
-
-        result = bridge.has_existing_session(Path("/tmp/test"))
-        assert result is False
-
-    def test_has_existing_session_error(self, bridge, mocker):
-        """Test session detection handles errors gracefully"""
-        mock_run = mocker.patch("bridge.subprocess.run")
-        mock_run.side_effect = Exception("Command failed")
-
-        result = bridge.has_existing_session(Path("/tmp/test"))
-        assert result is False
-
 
 class TestKiroCLI:
     def test_run_kiro_success(self, bridge, mocker):
@@ -135,7 +109,7 @@ class TestKiroCLI:
         mock_run = mocker.patch("bridge.subprocess.run")
         mock_run.return_value = Mock(returncode=0, stdout="Response from Kiro")
 
-        response = bridge.run_kiro("test message", Path("/tmp/test"), False)
+        response = bridge.run_kiro("test message", Path("/tmp/test"))
         assert response == "Response from Kiro"
 
         # Verify command structure
@@ -144,17 +118,8 @@ class TestKiroCLI:
         assert cmd[0] == "kiro-cli"
         assert cmd[1] == "chat"
         assert cmd[2] == "--no-interactive"
+        assert cmd[3] == "--resume"
         assert "test message" in cmd
-
-    def test_run_kiro_with_resume(self, bridge, mocker):
-        """Test Kiro CLI with resume flag"""
-        mock_run = mocker.patch("bridge.subprocess.run")
-        mock_run.return_value = Mock(returncode=0, stdout="Response")
-
-        bridge.run_kiro("test", Path("/tmp/test"), is_resume=True)
-
-        cmd = mock_run.call_args[0][0]
-        assert "--resume" in cmd
 
     def test_run_kiro_with_agent(self, bridge, mocker):
         """Test Kiro CLI with agent setting"""
@@ -162,7 +127,7 @@ class TestKiroCLI:
         mock_run = mocker.patch("bridge.subprocess.run")
         mock_run.return_value = Mock(returncode=0, stdout="Response")
 
-        bridge.run_kiro("test", Path("/tmp/test"), False)
+        bridge.run_kiro("test", Path("/tmp/test"))
 
         cmd = mock_run.call_args[0][0]
         assert "--agent" in cmd
@@ -175,7 +140,7 @@ class TestKiroCLI:
         mock_run = mocker.patch("bridge.subprocess.run")
         mock_run.side_effect = subprocess.TimeoutExpired("kiro-cli", 300)
 
-        response = bridge.run_kiro("test", Path("/tmp/test"), False)
+        response = bridge.run_kiro("test", Path("/tmp/test"))
         assert "timeout" in response.lower()
 
     def test_run_kiro_error(self, bridge, mocker):
@@ -183,7 +148,7 @@ class TestKiroCLI:
         mock_run = mocker.patch("bridge.subprocess.run")
         mock_run.return_value = Mock(returncode=1, stderr="Error occurred")
 
-        response = bridge.run_kiro("test", Path("/tmp/test"), False)
+        response = bridge.run_kiro("test", Path("/tmp/test"))
         assert "error" in response.lower()
 
 
@@ -222,7 +187,6 @@ class TestMessageHandling:
     def test_handle_message_processes_user_message(self, bridge, mocker):
         """Test processing user message"""
         mocker.patch.object(bridge, "get_thread_dir", return_value=Path("/tmp/test"))
-        mocker.patch.object(bridge, "has_existing_session", return_value=False)
         mocker.patch.object(bridge, "run_kiro", return_value="Response")
         mocker.patch.object(bridge, "send_message")
 
