@@ -168,13 +168,12 @@ class KiroSlackBridge:
         if self.trust_all:
             cmd.append("--trust-all-tools")
 
-        cmd.append(message)
-
         start_time = time.time()
         try:
             result = subprocess.run(
                 cmd,
                 cwd=thread_dir,
+                input=message,  # Send message via stdin
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout
