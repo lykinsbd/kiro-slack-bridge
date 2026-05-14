@@ -37,13 +37,13 @@ class KiroACPClient(Client):
 
     async def request_permission(self, options, session_id, tool_call, **kwargs: Any):
         """Auto-approve all tool calls (trust-all equivalent)."""
+        logger.debug(f"Auto-approving tool call for session {session_id}")
         return {"outcome": {"outcome": "approved"}}
 
     async def session_update(self, session_id: str, update: Any, **kwargs):
         """Handle streaming session updates from the agent."""
         turn = self._get_turn(session_id)
         update_type = type(update).__name__
-        logger.debug(f"session_update: {update_type}")
 
         if update_type == "AgentMessageChunk":
             content = getattr(update, "content", None)
@@ -69,6 +69,7 @@ class KiroACPClient(Client):
                 "status": "running",
             }
             turn.tool_calls.append(tool_info)
+            logger.info(f"Tool call started: {tool_info['name']}")
             if self._on_tool_call:
                 self._on_tool_call(session_id, tool_info)
 
@@ -77,11 +78,16 @@ class KiroACPClient(Client):
                 "name": getattr(update, "name", "tool"),
                 "status": getattr(update, "status", "running"),
             }
+            logger.debug(f"Tool call progress: {tool_info['name']} ({tool_info['status']})")
             if self._on_tool_call:
                 self._on_tool_call(session_id, tool_info)
 
+        else:
+            logger.debug(f"Unhandled session update type: {update_type}")
+
     async def read_text_file(self, path: str, session_id: str, **kwargs: Any):
         """Handle file read requests from the agent."""
+        logger.debug(f"Agent reading file: {path}")
         try:
             with open(path) as f:
                 content = f.read()
@@ -94,6 +100,7 @@ class KiroACPClient(Client):
 
     async def write_text_file(self, content: str, path: str, session_id: str, **kwargs: Any):
         """Handle file write requests from the agent."""
+        logger.info(f"Agent writing file: {path} ({len(content)} bytes)")
         try:
             with open(path, "w") as f:
                 f.write(content)
@@ -137,6 +144,7 @@ class KiroACP:
             on_tool_call=self._on_tool_call,
         )
 
+        logger.debug(f"Spawning: {self._cli_path} {' '.join(args)}")
         self._ctx = spawn_agent_process(self._client, self._cli_path, *args)
         self._conn, self._proc = await self._ctx.__aenter__()
         await self._conn.initialize(protocol_version=PROTOCOL_VERSION)
@@ -145,6 +153,7 @@ class KiroACP:
 
     async def stop(self):
         """Shut down the ACP process."""
+        logger.debug("Stopping ACP process")
         if self._ctx:
             try:
                 await self._ctx.__aexit__(None, None, None)
@@ -161,7 +170,7 @@ class KiroACP:
             await self.start()
         result = await self._conn.new_session(cwd=cwd, mcp_servers=[])
         session_id = result.session_id
-        logger.info(f"Created new ACP session: {session_id}")
+        logger.info(f"Created new ACP session: {session_id} (cwd={cwd})")
         return session_id
 
     async def load_session(self, session_id: str) -> str:
@@ -179,6 +188,7 @@ class KiroACP:
 
         # Reset turn state
         self._client._turn_results[session_id] = TurnResult()
+        logger.debug(f"Sending prompt to session {session_id}: {message[:100]}{'...' if len(message) > 100 else ''}")
 
         # prompt() blocks until the agent finishes the turn
         try:
@@ -191,7 +201,7 @@ class KiroACP:
                 timeout=self._response_timeout,
             )
         except asyncio.TimeoutError:
-            logger.error(f"Prompt timed out for session {session_id}")
+            logger.error(f"Prompt timed out after {self._response_timeout}s for session {session_id}")
             turn = self._client._get_turn(session_id)
             if not turn.text:
                 turn.text = "Sorry, your request timed out."
@@ -200,11 +210,13 @@ class KiroACP:
 
         turn = self._client._get_turn(session_id)
         turn.stop_reason = getattr(response, "stop_reason", "end_turn")
+        logger.debug(f"Turn complete: {len(turn.text)} chars, {len(turn.tool_calls)} tool calls, reason={turn.stop_reason}")
         return turn
 
     async def cancel(self, session_id: str):
         """Cancel the current operation in a session."""
         if self._conn:
+            logger.info(f"Cancelling session {session_id}")
             await self._conn.cancel(session_id=session_id)
 
     @property

@@ -86,7 +86,8 @@ class TestKiroACPClient:
         client = KiroACPClient(on_chunk=lambda sid, c: chunks.append((sid, c)))
 
         update = Mock()
-        update.type = "AgentMessageChunk"
+        update.__class__ = type("AgentMessageChunk", (), {})
+        type(update).__name__ = "AgentMessageChunk"
         update.content = [Mock(text="hello "), Mock(text="world")]
 
         asyncio.run(client.session_update("sess1", update))
@@ -98,27 +99,16 @@ class TestKiroACPClient:
         client = KiroACPClient(on_tool_call=lambda sid, info: calls.append(info))
 
         update = Mock()
-        update.type = "ToolCall"
+        type(update).__name__ = "ToolCallStart"
         update.name = "read_file"
-        update.status = "pending"
 
         asyncio.run(client.session_update("sess1", update))
-        assert calls == [{"name": "read_file", "status": "pending"}]
-
-    def test_turn_end_sets_event(self):
-        client = KiroACPClient()
-        event = client._get_event("sess1")
-        assert not event.is_set()
-
-        update = Mock()
-        update.type = "TurnEnd"
-        asyncio.run(client.session_update("sess1", update))
-        assert event.is_set()
+        assert calls == [{"name": "read_file", "status": "running"}]
 
     def test_string_content_chunk(self):
         client = KiroACPClient()
         update = Mock()
-        update.type = "AgentMessageChunk"
+        type(update).__name__ = "AgentMessageChunk"
         update.content = "direct string"
 
         asyncio.run(client.session_update("sess1", update))
