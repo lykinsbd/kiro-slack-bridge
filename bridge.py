@@ -227,6 +227,41 @@ class KiroSlackBridge:
             self.metrics.record_error("acp_error")
             return TurnResult(text="Sorry, I encountered an error processing your request.", stop_reason="error")
 
+    def _build_footer(self, acp: KiroACP, session_id: str) -> str:
+        """Build a footer with context usage and plan info."""
+        state = acp.get_session_state(session_id)
+        parts = []
+
+        # Context usage
+        if state.usage_size > 0:
+            pct = int(state.usage_used / state.usage_size * 100)
+            used_k = f"{state.usage_used // 1000}k"
+            size_k = f"{state.usage_size // 1000}k"
+            parts.append(f"📊 {used_k}/{size_k} tokens ({pct}%)")
+
+        # Current mode
+        if state.current_mode:
+            parts.append(f"🤖 {state.current_mode}")
+
+        # Plan summary
+        if state.plan:
+            done = sum(1 for e in state.plan if e["status"] == "completed")
+            total = len(state.plan)
+            parts.append(f"📋 Plan: {done}/{total}")
+
+        if not parts:
+            return ""
+        return "\n\n_" + " · ".join(parts) + "_"
+
+    def _format_plan(self, acp: KiroACP, session_id: str) -> str:
+        """Format the agent plan as a checklist."""
+        state = acp.get_session_state(session_id)
+        if not state.plan:
+            return "No active plan."
+        icons = {"completed": "✅", "in_progress": "⏳", "pending": "⬜"}
+        lines = [f"{icons.get(e['status'], '⬜')} {e['content']}" for e in state.plan]
+        return "📋 *Agent Plan:*\n" + "\n".join(lines)
+
     def send_message(self, channel: str, thread_ts: str, text: str):
         """Send message to Slack with chunking for long responses."""
         MAX_LENGTH = 3000
@@ -339,23 +374,27 @@ class KiroSlackBridge:
 
                 # Final message update
                 response = result.text.strip() or "_(No response)_"
+
+                # Append context usage and plan footer
+                footer = self._build_footer(acp, session_id)
+                display_text = response + footer
+
                 try:
-                    self.client.chat_update(channel=channel, ts=msg_ts, text=response)
+                    self.client.chat_update(channel=channel, ts=msg_ts, text=display_text)
                 except SlackApiError:
-                    # If update fails (e.g., too long), delete and re-post with chunking
                     try:
                         self.client.chat_delete(channel=channel, ts=msg_ts)
                     except SlackApiError:
                         pass
-                    self.send_message(channel, thread_ts, response)
+                    self.send_message(channel, thread_ts, display_text)
 
                 # If response is too long for a single message, post overflow as chunks
-                if len(response) > 3000:
+                if len(display_text) > 3000:
                     try:
                         self.client.chat_delete(channel=channel, ts=msg_ts)
                     except SlackApiError:
                         pass
-                    self.send_message(channel, thread_ts, response)
+                    self.send_message(channel, thread_ts, display_text)
 
                 self.metrics.record_message()
                 logger.info(f"Sent response to {user} in thread {thread_ts}")
@@ -392,28 +431,97 @@ class KiroSlackBridge:
         command = payload["command"]
         channel = payload["channel_id"]
         user = payload["user_id"]
-        logger.info(f"Received slash command {command} from {user}")
+        cmd_text = payload.get("text", "").strip()
+        thread_ts = payload.get("thread_ts")
+        logger.info(f"Received slash command {command} {cmd_text} from {user}")
 
         try:
             if command == "/kiro-help":
                 self.client.chat_postMessage(channel=channel, text=(
                     "🤖 *Kiro Slack Bridge (ACP)*\n\n"
                     "*Commands:*\n"
-                    "- `/kiro-help` - Show this help\n"
-                    "- `/kiro-reset` - Reset conversation in current thread\n\n"
+                    "- `/kiro-help` — Show this help\n"
+                    "- `/kiro-reset` — Reset conversation in current thread\n"
+                    "- `/kiro-agent <name>` — Switch agent/mode\n"
+                    "- `/kiro-model <name>` — Switch model\n"
+                    "- `/kiro-plan` — Show current agent plan\n"
+                    "- `/kiro-usage` — Show context usage\n\n"
                     "*Usage:*\n"
                     "- Mention @Kiro in a channel or DM directly\n"
                     "- Each thread maintains its own conversation (via ACP sessions)\n"
-                    "- Responses stream in real-time"
+                    "- Responses stream in real-time\n"
+                    "- Context usage shown after each response"
                 ))
+
             elif command == "/kiro-reset":
-                # Find thread context from payload if available
-                thread_ts = payload.get("thread_ts")
                 if thread_ts:
                     self.sessions.remove(thread_ts)
                     self.client.chat_postMessage(channel=channel, text="🔄 Conversation reset. Next message starts fresh.")
                 else:
                     self.client.chat_postMessage(channel=channel, text="Use `/kiro-reset` inside a thread to reset that conversation.")
+
+            elif command == "/kiro-agent":
+                if not cmd_text:
+                    self.client.chat_postMessage(channel=channel, text="Usage: `/kiro-agent <agent-name>`")
+                    return
+                if thread_ts and self._loop:
+                    session_id = self.sessions.get(thread_ts)
+                    if session_id:
+                        asyncio.run_coroutine_threadsafe(
+                            self._get_acp().set_mode(session_id, cmd_text), self._loop
+                        ).result(timeout=10)
+                        self.client.chat_postMessage(channel=channel, text=f"🤖 Switched agent to *{cmd_text}*")
+                    else:
+                        self.client.chat_postMessage(channel=channel, text="No active session in this thread. Send a message first.")
+                else:
+                    self.client.chat_postMessage(channel=channel, text="Use `/kiro-agent` inside a thread with an active conversation.")
+
+            elif command == "/kiro-model":
+                if not cmd_text:
+                    self.client.chat_postMessage(channel=channel, text="Usage: `/kiro-model <model-name>`")
+                    return
+                if thread_ts and self._loop:
+                    session_id = self.sessions.get(thread_ts)
+                    if session_id:
+                        asyncio.run_coroutine_threadsafe(
+                            self._get_acp().set_model(session_id, cmd_text), self._loop
+                        ).result(timeout=10)
+                        self.client.chat_postMessage(channel=channel, text=f"🧠 Switched model to *{cmd_text}*")
+                    else:
+                        self.client.chat_postMessage(channel=channel, text="No active session in this thread. Send a message first.")
+                else:
+                    self.client.chat_postMessage(channel=channel, text="Use `/kiro-model` inside a thread with an active conversation.")
+
+            elif command == "/kiro-plan":
+                if thread_ts:
+                    session_id = self.sessions.get(thread_ts)
+                    if session_id:
+                        plan_text = self._format_plan(self._get_acp(), session_id)
+                        self.client.chat_postMessage(channel=channel, text=plan_text)
+                    else:
+                        self.client.chat_postMessage(channel=channel, text="No active session in this thread.")
+                else:
+                    self.client.chat_postMessage(channel=channel, text="Use `/kiro-plan` inside a thread.")
+
+            elif command == "/kiro-usage":
+                if thread_ts:
+                    session_id = self.sessions.get(thread_ts)
+                    if session_id:
+                        state = self._get_acp().get_session_state(session_id)
+                        if state.usage_size > 0:
+                            pct = int(state.usage_used / state.usage_size * 100)
+                            bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
+                            msg = f"📊 *Context Usage*\n{bar} {pct}%\n{state.usage_used:,} / {state.usage_size:,} tokens"
+                            if state.cost is not None:
+                                msg += f"\n💰 Cost: ${state.cost:.4f}"
+                        else:
+                            msg = "📊 No usage data yet. Send a message first."
+                        self.client.chat_postMessage(channel=channel, text=msg)
+                    else:
+                        self.client.chat_postMessage(channel=channel, text="No active session in this thread.")
+                else:
+                    self.client.chat_postMessage(channel=channel, text="Use `/kiro-usage` inside a thread.")
+
             else:
                 self.client.chat_postMessage(channel=channel, text=f"Unknown command `{command}`. Use `/kiro-help`.")
         except Exception as e:
