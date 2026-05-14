@@ -21,6 +21,18 @@ class TurnResult:
     stop_reason: str = ""
 
 
+@dataclass
+class SessionState:
+    """Tracked state for a session."""
+
+    usage_used: int = 0
+    usage_size: int = 0
+    cost: float | None = None
+    current_mode: str = ""
+    plan: list[dict[str, str]] = field(default_factory=list)
+    available_commands: list[dict[str, str]] = field(default_factory=list)
+
+
 class KiroACPClient(Client):
     """ACP client that bridges Slack messages to kiro-cli acp."""
 
@@ -29,11 +41,17 @@ class KiroACPClient(Client):
         self._on_chunk = on_chunk
         self._on_tool_call = on_tool_call
         self._turn_results: dict[str, TurnResult] = {}
+        self._session_states: dict[str, SessionState] = {}
 
     def _get_turn(self, session_id: str) -> TurnResult:
         if session_id not in self._turn_results:
             self._turn_results[session_id] = TurnResult()
         return self._turn_results[session_id]
+
+    def get_session_state(self, session_id: str) -> SessionState:
+        if session_id not in self._session_states:
+            self._session_states[session_id] = SessionState()
+        return self._session_states[session_id]
 
     async def request_permission(self, options, session_id, tool_call, **kwargs: Any):
         """Auto-approve all tool calls (trust-all equivalent)."""
@@ -43,6 +61,7 @@ class KiroACPClient(Client):
     async def session_update(self, session_id: str, update: Any, **kwargs):
         """Handle streaming session updates from the agent."""
         turn = self._get_turn(session_id)
+        state = self.get_session_state(session_id)
         update_type = type(update).__name__
 
         if update_type == "AgentMessageChunk":
@@ -64,23 +83,45 @@ class KiroACPClient(Client):
                         self._on_chunk(session_id, chunk_text)
 
         elif update_type == "ToolCallStart":
-            tool_info = {
-                "name": getattr(update, "name", "tool"),
-                "status": "running",
-            }
+            tool_info = {"name": getattr(update, "name", "tool"), "status": "running"}
             turn.tool_calls.append(tool_info)
             logger.info(f"Tool call started: {tool_info['name']}")
             if self._on_tool_call:
                 self._on_tool_call(session_id, tool_info)
 
         elif update_type == "ToolCallProgress":
-            tool_info = {
-                "name": getattr(update, "name", "tool"),
-                "status": getattr(update, "status", "running"),
-            }
+            tool_info = {"name": getattr(update, "name", "tool"), "status": getattr(update, "status", "running")}
             logger.debug(f"Tool call progress: {tool_info['name']} ({tool_info['status']})")
             if self._on_tool_call:
                 self._on_tool_call(session_id, tool_info)
+
+        elif update_type == "UsageUpdate":
+            state.usage_used = getattr(update, "used", 0)
+            state.usage_size = getattr(update, "size", 0)
+            cost_obj = getattr(update, "cost", None)
+            if cost_obj:
+                state.cost = getattr(cost_obj, "amount", None)
+            logger.debug(f"Usage: {state.usage_used}/{state.usage_size} tokens")
+
+        elif update_type == "AgentPlanUpdate":
+            entries = getattr(update, "entries", [])
+            state.plan = [
+                {"content": getattr(e, "content", ""), "status": getattr(e, "status", "pending")}
+                for e in entries
+            ]
+            logger.debug(f"Plan updated: {len(state.plan)} entries")
+
+        elif update_type == "CurrentModeUpdate":
+            state.current_mode = getattr(update, "current_mode_id", "")
+            logger.info(f"Mode changed: {state.current_mode}")
+
+        elif update_type == "AvailableCommandsUpdate":
+            cmds = getattr(update, "available_commands", [])
+            state.available_commands = [
+                {"name": getattr(c, "name", ""), "description": getattr(c, "description", "")}
+                for c in cmds
+            ]
+            logger.debug(f"Available commands: {len(state.available_commands)}")
 
         else:
             logger.debug(f"Unhandled session update type: {update_type}")
@@ -186,11 +227,9 @@ class KiroACP:
         if not self._initialized:
             await self.start()
 
-        # Reset turn state
         self._client._turn_results[session_id] = TurnResult()
         logger.debug(f"Sending prompt to session {session_id}: {message[:100]}{'...' if len(message) > 100 else ''}")
 
-        # prompt() blocks until the agent finishes the turn
         try:
             response = await asyncio.wait_for(
                 self._conn.prompt(
@@ -213,11 +252,48 @@ class KiroACP:
         logger.debug(f"Turn complete: {len(turn.text)} chars, {len(turn.tool_calls)} tool calls, reason={turn.stop_reason}")
         return turn
 
+    async def set_mode(self, session_id: str, mode_id: str):
+        """Switch agent mode for a session."""
+        if not self._initialized:
+            await self.start()
+        result = await self._conn.set_session_mode(mode_id=mode_id, session_id=session_id)
+        logger.info(f"Set mode to '{mode_id}' for session {session_id}")
+        return result
+
+    async def set_model(self, session_id: str, model_id: str):
+        """Switch model for a session."""
+        if not self._initialized:
+            await self.start()
+        result = await self._conn.set_session_model(model_id=model_id, session_id=session_id)
+        logger.info(f"Set model to '{model_id}' for session {session_id}")
+        return result
+
+    async def execute_command(self, session_id: str, command: str):
+        """Execute a Kiro slash command via the extension method."""
+        if not self._initialized:
+            await self.start()
+        try:
+            result = await self._conn.ext_method(
+                "_kiro.dev/commands/execute",
+                {"sessionId": session_id, "command": command},
+            )
+            logger.info(f"Executed command '{command}' for session {session_id}")
+            return result
+        except Exception as e:
+            logger.warning(f"Command execution failed: {e}")
+            return None
+
     async def cancel(self, session_id: str):
         """Cancel the current operation in a session."""
         if self._conn:
             logger.info(f"Cancelling session {session_id}")
             await self._conn.cancel(session_id=session_id)
+
+    def get_session_state(self, session_id: str) -> SessionState:
+        """Get tracked state for a session."""
+        if self._client:
+            return self._client.get_session_state(session_id)
+        return SessionState()
 
     @property
     def is_running(self) -> bool:
