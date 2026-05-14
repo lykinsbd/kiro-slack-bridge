@@ -211,17 +211,11 @@ class KiroSlackBridge:
 
         # Get or create session for this thread
         session_id = self.sessions.get(thread_ts)
-        if session_id:
-            try:
-                await acp.load_session(session_id)
-                self.sessions.touch(thread_ts)
-            except Exception:
-                logger.warning(f"Failed to load session {session_id}, creating new")
-                session_id = None
-
         if not session_id:
             session_id = await acp.new_session(cwd=str(thread_dir))
             self.sessions.put(thread_ts, session_id, str(thread_dir))
+        else:
+            self.sessions.touch(thread_ts)
 
         start_time = time.time()
         try:
@@ -324,16 +318,10 @@ class KiroSlackBridge:
                 # Run the prompt
                 thread_dir = self.get_thread_dir(thread_ts)
 
-                # Session management
+                # Session management - sessions stay active in the ACP process
                 if session_id:
-                    try:
-                        await acp.load_session(session_id)
-                        self.sessions.touch(thread_ts)
-                    except Exception:
-                        logger.warning(f"Failed to load session {session_id}, creating new")
-                        session_id = None
-
-                if not session_id:
+                    self.sessions.touch(thread_ts)
+                else:
                     if not acp.is_running:
                         await acp.start()
                     session_id = await acp.new_session(cwd=str(thread_dir))

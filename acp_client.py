@@ -3,7 +3,6 @@
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -30,17 +29,11 @@ class KiroACPClient(Client):
         self._on_chunk = on_chunk
         self._on_tool_call = on_tool_call
         self._turn_results: dict[str, TurnResult] = {}
-        self._turn_events: dict[str, asyncio.Event] = {}
 
     def _get_turn(self, session_id: str) -> TurnResult:
         if session_id not in self._turn_results:
             self._turn_results[session_id] = TurnResult()
         return self._turn_results[session_id]
-
-    def _get_event(self, session_id: str) -> asyncio.Event:
-        if session_id not in self._turn_events:
-            self._turn_events[session_id] = asyncio.Event()
-        return self._turn_events[session_id]
 
     async def request_permission(self, options, session_id, tool_call, **kwargs: Any):
         """Auto-approve all tool calls (trust-all equivalent)."""
@@ -49,59 +42,67 @@ class KiroACPClient(Client):
     async def session_update(self, session_id: str, update: Any, **kwargs):
         """Handle streaming session updates from the agent."""
         turn = self._get_turn(session_id)
-        update_type = getattr(update, "type", None) or (
-            update.get("type") if isinstance(update, dict) else None
-        )
+        update_type = type(update).__name__
+        logger.debug(f"session_update: {update_type}")
 
         if update_type == "AgentMessageChunk":
-            content = getattr(update, "content", None) or (
-                update.get("content") if isinstance(update, dict) else None
-            )
+            content = getattr(update, "content", None)
             if content:
                 chunk_text = ""
                 if isinstance(content, str):
                     chunk_text = content
                 elif isinstance(content, list):
                     for block in content:
-                        t = getattr(block, "text", None) or (
-                            block.get("text") if isinstance(block, dict) else None
-                        )
+                        t = getattr(block, "text", None)
                         if t:
                             chunk_text += t
                 elif hasattr(content, "text"):
                     chunk_text = content.text
-                turn.text += chunk_text
-                if self._on_chunk:
-                    self._on_chunk(session_id, chunk_text)
+                if chunk_text:
+                    turn.text += chunk_text
+                    if self._on_chunk:
+                        self._on_chunk(session_id, chunk_text)
 
-        elif update_type == "ToolCall":
+        elif update_type == "ToolCallStart":
             tool_info = {
-                "name": getattr(update, "name", None) or (
-                    update.get("name") if isinstance(update, dict) else "unknown"
-                ),
-                "status": getattr(update, "status", None) or (
-                    update.get("status") if isinstance(update, dict) else "pending"
-                ),
+                "name": getattr(update, "name", "tool"),
+                "status": "running",
             }
             turn.tool_calls.append(tool_info)
             if self._on_tool_call:
                 self._on_tool_call(session_id, tool_info)
 
-        elif update_type == "ToolCallUpdate":
+        elif update_type == "ToolCallProgress":
             tool_info = {
-                "name": getattr(update, "name", None) or (
-                    update.get("name") if isinstance(update, dict) else "unknown"
-                ),
-                "status": getattr(update, "status", None) or (
-                    update.get("status") if isinstance(update, dict) else "running"
-                ),
+                "name": getattr(update, "name", "tool"),
+                "status": getattr(update, "status", "running"),
             }
             if self._on_tool_call:
                 self._on_tool_call(session_id, tool_info)
 
-        elif update_type == "TurnEnd":
-            event = self._get_event(session_id)
-            event.set()
+    async def read_text_file(self, path: str, session_id: str, **kwargs: Any):
+        """Handle file read requests from the agent."""
+        try:
+            with open(path) as f:
+                content = f.read()
+            from acp.schema import ReadTextFileResponse
+            return ReadTextFileResponse(content=content)
+        except Exception as e:
+            logger.warning(f"Failed to read file {path}: {e}")
+            from acp.schema import ReadTextFileResponse
+            return ReadTextFileResponse(content=f"Error reading file: {e}")
+
+    async def write_text_file(self, content: str, path: str, session_id: str, **kwargs: Any):
+        """Handle file write requests from the agent."""
+        try:
+            with open(path, "w") as f:
+                f.write(content)
+            from acp.schema import WriteTextFileResponse
+            return WriteTextFileResponse(success=True)
+        except Exception as e:
+            logger.warning(f"Failed to write file {path}: {e}")
+            from acp.schema import WriteTextFileResponse
+            return WriteTextFileResponse(success=False)
 
 
 class KiroACP:
@@ -172,24 +173,23 @@ class KiroACP:
         return result.session_id
 
     async def prompt(self, session_id: str, message: str) -> TurnResult:
-        """Send a prompt and wait for the turn to complete. Returns accumulated result."""
+        """Send a prompt and wait for completion. Returns accumulated result."""
         if not self._initialized:
             await self.start()
 
         # Reset turn state
         self._client._turn_results[session_id] = TurnResult()
-        event = self._client._get_event(session_id)
-        event.clear()
 
-        await self._conn.prompt(
-            session_id=session_id,
-            prompt=[text_block(message)],
-            message_id=str(uuid4()),
-        )
-
-        # Wait for TurnEnd
+        # prompt() blocks until the agent finishes the turn
         try:
-            await asyncio.wait_for(event.wait(), timeout=self._response_timeout)
+            response = await asyncio.wait_for(
+                self._conn.prompt(
+                    session_id=session_id,
+                    prompt=[text_block(message)],
+                    message_id=str(uuid4()),
+                ),
+                timeout=self._response_timeout,
+            )
         except asyncio.TimeoutError:
             logger.error(f"Prompt timed out for session {session_id}")
             turn = self._client._get_turn(session_id)
@@ -199,7 +199,7 @@ class KiroACP:
             return turn
 
         turn = self._client._get_turn(session_id)
-        turn.stop_reason = "end_turn"
+        turn.stop_reason = getattr(response, "stop_reason", "end_turn")
         return turn
 
     async def cancel(self, session_id: str):
