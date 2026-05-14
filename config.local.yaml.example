@@ -9,6 +9,19 @@ threads:
   base_dir: "~/kiro-slack-threads"
 
 kiro:
-  cli_path: ""
-  agent: ""
-  trust_all_tools: false
+  cli_path: ""       # defaults to "kiro-cli" on PATH
+  agent: ""          # optional: custom agent name
+
+# ACP (Agent Client Protocol) settings
+acp:
+  response_timeout: 300   # max seconds per prompt turn
+  max_sessions: 100       # LRU eviction beyond this count
+
+# Rate limiting
+rate_limits:
+  per_user_per_minute: 10
+  max_concurrent: 3
+
+# Health check endpoint
+health:
+  port: 9090
