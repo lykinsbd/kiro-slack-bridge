@@ -1,10 +1,11 @@
 [project]
 name = "kiro-slack-bridge"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Slack bot that integrates with Kiro CLI via ACP (Agent Client Protocol)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "agent-client-protocol>=0.10.0",
     "pyyaml>=6.0.3",
     "slack-sdk>=3.40.1",
 ]
@@ -13,5 +14,6 @@ dependencies = [
 dev = [
     "pre-commit>=4.5.1",
     "pytest>=9.0.2",
+    "pytest-asyncio>=0.25.0",
     "pytest-mock>=3.15.1",
 ]
